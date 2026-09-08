@@ -9,3 +9,6 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+
+# README 仅本地保留，远程不提交
+README.md
