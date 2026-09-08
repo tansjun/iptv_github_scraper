@@ -64,7 +64,7 @@ jobs:
           python -m playwright install chromium --with-deps
 
       - name: 执行爬虫（无头模式）
-        run: python IPTVScraper.py --province "${{ github.event.inputs.province }}" --headless
+        run: python -u IPTVScraper.py --province "${{ github.event.inputs.province }}" --headless
 
       - name: 提交并推送产物
         run: |
