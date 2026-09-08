@@ -1,0 +1,49 @@
+task_name: "IPTV_Stealth_Flow"
+max_concurrent_tabs: 22 # 反爬严时建议降低并发
+
+# 新增：反爬伪装配置
+stealth_settings:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+  viewport: { width: 1920, height: 1080 }
+  locale: "zh-CN"
+  timezone: "Asia/Shanghai"
+
+steps:
+  - name: "初始化访问并伪装"
+    action_type: "navigate"
+    url: "https://iptv.cqshushu.com/index.php"
+    wait_for_navigation: true 
+    wait_until: "networkidle"
+
+  - name: "选择地区"
+    action_type: "interact"
+    interactions:
+      - {type: "select", selector: "#provinceSelect", value: "海南"}
+    # 注意：根据你的描述，选择完下拉框也会触发自动跳转
+    wait_for_navigation: true 
+
+  - name: "筛选IP并分发任务"
+    action_type: "dispatch_tabs"
+    container_selector: "body > div.container > section.nth-child(7)"
+    table_selector: "section[aria-label='IPTV源列表'] table.iptv-table"
+    filter_condition: { column: "状态", exclude: "失效" }
+    click_column: "IP"
+    onclick_js: "gotoIP\\('([^']+)',\\s*'([^']+)'\\)"
+    wait_after: 1.5
+    tab_steps:
+      - name: "详情页交互"
+        action_type: "interact"
+        interactions:
+        #- {type: "click", selector: ".controls a:has-text('查看频道列表')"}
+        - type: "download"
+          selector: ".controls a:has-text('查看频道列表')"
+          custom_rules: 
+            - action: "custom_process_download"
+          save_prefix: "iptv_list"
+          
+#      - name: "数据抓取"
+#        action_type: "extract_table"
+#        table_selector: ".iptv-table"
+#        pagination:
+#          next_selector: ".pagination-buttons a:has-text('下一页')"
+#          save_to_db: "iptv_result"

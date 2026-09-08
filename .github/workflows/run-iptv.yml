@@ -1,0 +1,80 @@
+name: Run IPTV Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      province:
+        description: '省份（34 个省级行政区单一对应）'
+        required: true
+        type: choice
+        options:
+          - 北京
+          - 天津
+          - 上海
+          - 重庆
+          - 河北
+          - 山西
+          - 辽宁
+          - 吉林
+          - 黑龙江
+          - 江苏
+          - 浙江
+          - 安徽
+          - 福建
+          - 江西
+          - 山东
+          - 河南
+          - 湖北
+          - 湖南
+          - 广东
+          - 海南
+          - 四川
+          - 贵州
+          - 云南
+          - 陕西
+          - 甘肃
+          - 青海
+          - 台湾
+          - 内蒙古
+          - 广西
+          - 西藏
+          - 宁夏
+          - 新疆
+          - 香港
+          - 澳门
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖与浏览器
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium --with-deps
+
+      - name: 执行爬虫（无头模式）
+        run: python IPTVScraper.py --province "${{ github.event.inputs.province }}" --headless
+
+      - name: 提交并推送产物
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if ! git diff --cached --quiet; then
+            git commit -m "update ${{ github.event.inputs.province }} live list"
+            git push
+            echo "已提交更新"
+          else
+            echo "无文件变化，跳过提交"
+          fi

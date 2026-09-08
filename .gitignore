@@ -1,0 +1,11 @@
+# 运行产物（不提交）
+.logs/
+*.db
+__pycache__/
+*.pyc
+
+# 本地开发环境
+.venv/
+.idea/
+.vscode/
+.DS_Store
