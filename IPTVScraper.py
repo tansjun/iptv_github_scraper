@@ -89,6 +89,20 @@ class AntiDetectScraper:
                 delete newProto.webdriver;
                 navigator.__proto__ = newProto;
                 window.chrome = { runtime: { connect: () => {} } };
+                if (typeof navigator.userAgentData !== 'undefined') {
+                    Object.defineProperty(navigator, 'userAgentData', {
+                        get: () => ({
+                            brands: [
+                                { brand: 'Chromium', version: '122' },
+                                { brand: 'Google Chrome', version: '122' },
+                                { brand: 'Not A(Brand', version: '24' }
+                            ],
+                            mobile: false,
+                            platform: 'Windows',
+                            getHighEntropyValues: () => Promise.resolve({})
+                        })
+                    });
+                }
                 Object.defineProperty(navigator, 'plugins', {
                     get: () => {
                         const ArrayProto = Object.create(PluginArray.prototype);
@@ -329,6 +343,15 @@ class AntiDetectScraper:
                     print(f"[DEBUG] 触发原生函数跳转: gotoIP('{item_id}', '{item_type}')")
                     
                     async with self.single_lock:
+                        # 5.1 等待 gotoIP 全局函数就绪（海外/慢网络下 JS 可能尚未执行完）
+                        try:
+                            await new_page.wait_for_function("typeof gotoIP === 'function'", timeout=20000)
+                        except Exception:
+                            print(f"[WARN] [{item_id}] gotoIP 未就绪（JS 加载慢或未注入），触发重试 {retry+1}/3")
+                            page_timeout = True
+                            await asyncio.sleep(10 * retry)
+                            continue
+
                         # 使用 evaluate 直接运行页面函数
                         await new_page.evaluate(f"gotoIP('{item_id}', '{item_type}')")
                         
