@@ -1,8 +1,8 @@
 # IPTV GitHub Scraper
 
-> 手机一键触发 → GitHub Actions 云端执行 → 自动更新省份 IPTV 源列表
+> 手机提交省份 → GitHub Actions 云端执行 → 自动更新省份 IPTV 源列表
 
-基于原 `iptv_stealth_scraper` 改造的远程执行版本：**手机（iOS 快捷指令 / GitHub App）提交省份 → GitHub Actions 在云端跑爬虫 → 合并后的 `{省份}-live.txt` 自动提交回仓库 → 手机直接取链接导入播放器**。
+基于原 `iptv_stealth_scraper` 改造的远程执行版本：**安卓手机（GitHub App / HTTP Shortcuts）提交省份 → GitHub Actions 在云端跑爬虫 → 合并后的 `{省份}-live.txt` 自动提交回仓库 → 手机直接取链接导入播放器**。
 
 ## 目录结构
 
@@ -55,24 +55,39 @@ python IPTVScraper.py --province 湖南 --headless
    ```
 3. 在仓库页 `Actions` 标签 → 左侧 `Run IPTV Scraper` → `Run workflow` → 选择省份 → 绿色按钮，即可手动触发验证一次。
 
-## 手机一键触发（iOS 快捷指令）
+## 安卓手机触发
+
+### 方式一：GitHub App / 浏览器（零安装零配置，最简单）
+
+1. 手机安装 GitHub App（或浏览器访问 `github.com` 登录）
+2. 打开你的仓库 → 底部（或页面顶部）`Actions` 标签
+3. 左侧选择 `Run IPTV Scraper`
+4. 点右侧 `Run workflow` → 下拉选择省份 → 点绿色 `Run workflow` 确认
+5. 等 2-5 分钟，切到仓库文件列表，根目录出现 `hi-live.txt` 即完成
+
+> 全程不需要任何额外安装和 Token，只是每次要手动点几下。执行进度可在 Actions 页查看实时日志。
+
+### 方式二：HTTP Shortcuts 一键触发（可选增强，装一个 App）
 
 首次准备：
-1. 生成 GitHub Token：GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens**（或 classic token 勾选 `repo`）
-   - Fine-grained 权限：Repository access 选本项目仓库；Permissions → Actions 选 **Read and write**、Contents 选 **Read and write**
+1. 生成 GitHub Token：GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens**
+   - Repository access 选本项目仓库；Permissions → Actions 选 **Read and write**、Contents 选 **Read and write**
    - 复制生成的 token（只显示一次）
-2. 打开 iOS「快捷指令」App，新建快捷指令，依次添加动作：
+2. Play 商店安装 [HTTP Shortcuts](https://play.google.com/store/apps/details?id=ch.rmy.android.http_shortcuts)（免费）
+3. 新建快捷方式：
 
-| 步骤 | 动作 | 配置 |
-|---|---|---|
-| 1 | 从菜单中选取 | 菜单项：海南、湖南、广东…（按需） |
-| 2 | URL | `https://api.github.com/repos/<用户名>/<仓库名>/actions/workflows/run-iptv.yml/dispatches` |
-| 3 | 获取 URL 内容 | 方法 `POST`；请求头：`Authorization: Bearer <你的Token>`、`Accept: application/vnd.github+json`；请求体（JSON）：`{"ref":"main","inputs":{"province":"海南"}}` |
-| 4 | 显示通知 | 标题：IPTV 已触发，正文：省份 海南 |
+| 配置项 | 值 |
+|---|---|
+| 名称 | 触发 IPTV |
+| 方法 | `POST` |
+| URL | `https://api.github.com/repos/<用户名>/<仓库名>/actions/workflows/run-iptv.yml/dispatches` |
+| 请求头 | `Authorization: Bearer <你的Token>`、`Accept: application/vnd.github+json` |
+| 请求体 | `{"ref":"main","inputs":{"province":"{{省份}}"}}`（`{{省份}}` 为变量，类型选「从列表选择」，填入 34 个省份） |
 
-3. 运行快捷指令 → 手机收到通知即触发成功（API 返回 204 无内容 = 成功）。
+4. 保存后长按快捷方式 →「添加到主屏幕」，桌面生成图标
+5. 之后点桌面图标 → 选省份 → 一键触发（API 返回 204 = 成功）
 
-> Token 只存在快捷指令里，不要提交到仓库。若提示权限不足，检查 Fine-grained token 的 Actions/Contents 权限。
+> Token 只存在 HTTP Shortcuts 里，不要提交到仓库。若提示权限不足，检查 Fine-grained token 的 Actions/Contents 权限。
 
 ## 产物获取（导入播放器）
 
