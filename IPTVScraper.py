@@ -23,6 +23,18 @@ PROVINCE_CODE = {
     "香港": "hk", "澳门": "mo",
 }
 
+# 合并输出分类规则（按顺序匹配，先命中先归类；未命中归入“其他频道”）
+CATEGORY_RULES = [
+    ("4K频道", "4K"),
+    ("央视频道", "CCTV"),
+    ("卫视频道", "卫视"),
+]
+CATEGORY_ORDER = ["4K频道", "央视频道", "卫视频道", "其他频道"]
+
+# 公告块：固定行 + 每次合并动态填充更新时间（格式与 MY 项目一致）
+ANNOUNCE_MAIN_URL = "https://gitlab.com/lr77/IPTV/-/raw/main/%E4%B8%BB%E8%A7%92.mp4"
+ANNOUNCE_TIME_URL = "https://gitlab.com/lr77/IPTV/-/raw/main/%E8%B5%B7%E9%A3%8E%E4%BA%86.mp4"
+
 class CooledLock(asyncio.Lock):
     def __init__(self, delay=3, group=None):
         super().__init__()
@@ -55,12 +67,11 @@ class CooledLock(asyncio.Lock):
             print(f"[DEBUG] 访问计数器：{self.counter}")
             
 class AntiDetectScraper:
-    def __init__(self, config_path, province=None, headless=False):
+    def __init__(self, config_path, province=None):
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
-        self.headless = headless
         self.province_override = province
-        # 若通过 CLI 指定省份，覆盖 config 中所有下拉选择步骤的地区值
+        # 若通过 CLI --province 指定省份（手机触发核心），覆盖 config 中所有下拉选择步骤的地区值
         if province:
             for step in self.config.get('steps', []):
                 if step.get('action_type') == 'interact':
@@ -82,50 +93,160 @@ class AntiDetectScraper:
         self.db_conn.commit()
 
     async def inject_stealth(self, page):
-        """深度伪装脚本，绕过 toString 检测"""
+        """深度伪装脚本：隐藏 webdriver，并补齐语言/平台/插件/WebGL/权限/UA-CH 等易被检测的指纹"""
         await page.add_init_script("""
-            (function() {
-                const newProto = navigator.__proto__;
-                delete newProto.webdriver;
-                navigator.__proto__ = newProto;
-                window.chrome = { runtime: { connect: () => {} } };
-                if (typeof navigator.userAgentData !== 'undefined') {
-                    Object.defineProperty(navigator, 'userAgentData', {
-                        get: () => ({
-                            brands: [
-                                { brand: 'Chromium', version: '122' },
-                                { brand: 'Google Chrome', version: '122' },
-                                { brand: 'Not A(Brand', version: '24' }
-                            ],
-                            mobile: false,
-                            platform: 'Windows',
-                            getHighEntropyValues: () => Promise.resolve({})
-                        })
-                    });
-                }
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => {
-                        const ArrayProto = Object.create(PluginArray.prototype);
-                        return Object.assign(ArrayProto, { length: 0 });
-                    }
-                });
-                const desc = Object.getOwnPropertyDescriptor(navigator, 'webdriver');
-                if (desc) {
+            (() => {
+                // ---------- 1. 隐藏 navigator.webdriver（多层防御） ----------
+                try { delete Navigator.prototype.webdriver; } catch (e) {}
+                try { delete navigator.webdriver; } catch (e) {}
+                try {
                     Object.defineProperty(navigator, 'webdriver', {
                         get: Object.assign(() => undefined, {
                             toString: () => 'function get webdriver() { [native code] }'
                         })
                     });
-                }
+                } catch (e) {}
+
+                // ---------- 2. 平台指纹：UA 声明 Windows，platform 必须一致（无头 Linux 默认报 Linux） ----------
+                try {
+                    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+                } catch (e) {}
+
+                // ---------- 3. 语言指纹 ----------
+                try {
+                    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en-US', 'en'] });
+                } catch (e) {}
+
+                // ---------- 4. 插件伪装（真实 Windows Chrome 有 5 个 PDF 插件，空数组是明显破绽） ----------
+                try {
+                    const pdfNames = ['PDF Viewer', 'Chrome PDF Viewer', 'Chromium PDF Viewer', 'Microsoft Edge PDF Viewer', 'WebKit built-in PDF'];
+                    const list = pdfNames.map((name, i) => ({
+                        name: name,
+                        description: 'Portable Document Format',
+                        filename: 'internal-pdf-viewer-' + (i + 1) + '.dll',
+                        length: 0,
+                        item: () => null,
+                        namedItem: () => null
+                    }));
+                    list.item = (i) => list[i] || null;
+                    list.namedItem = (n) => list.find(p => p.name === n) || null;
+                    list.refresh = () => {};
+                    Object.defineProperty(navigator, 'plugins', { get: () => list });
+                } catch (e) {}
+
+                // ---------- 5. window.chrome 完整对象（真实 Chrome 的属性远比空壳多） ----------
+                try {
+                    const ev = () => ({ addListener() {}, removeListener() {}, hasListener() {} });
+                    window.chrome = {
+                        app: {
+                            isInstalled: false,
+                            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+                            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+                            getDetails() { return {}; },
+                            getIsInstalled() {},
+                            getManifest() { return {}; }
+                        },
+                        csi() { return {}; },
+                        loadTimes() { return {}; },
+                        runtime: {
+                            OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
+                            OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+                            PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+                            PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+                            PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
+                            RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
+                            connect() {},
+                            sendMessage() {},
+                            getManifest() { return {}; },
+                            id: undefined
+                        },
+                        webstore: {
+                            onInstallStageChanged: ev(),
+                            onDownloadProgress: ev(),
+                            install() {}
+                        }
+                    };
+                } catch (e) {}
+
+                // ---------- 6. permissions.query 伪装（无头常被返回 denied，真人浏览器为 prompt/granted） ----------
+                try {
+                    if (window.navigator.permissions && window.navigator.permissions.query) {
+                        const orig = window.navigator.permissions.query.bind(window.navigator.permissions);
+                        window.navigator.permissions.query = (params) => {
+                            if (params && params.name === 'notifications') {
+                                return Promise.resolve({ state: Notification.permission || 'prompt', onchange: null });
+                            }
+                            return orig(params);
+                        };
+                    }
+                } catch (e) {}
+
+                // ---------- 7. WebGL 渲染器伪装（无头模式返回 SwiftShader 是最强检测信号之一） ----------
+                try {
+                    const VENDOR = 'Google Inc. (NVIDIA)';
+                    const RENDERER = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+                    const patchGL = (gl) => {
+                        if (!gl || gl.__patched) return;
+                        gl.__patched = true;
+                        const origParam = gl.getParameter.bind(gl);
+                        const origExt = gl.getExtension.bind(gl);
+                        gl.getParameter = function (p) {
+                            const v = Number(p);
+                            if (v === 37445) return VENDOR;   // UNMASKED_VENDOR_WEBGL
+                            if (v === 37446) return RENDERER; // UNMASKED_RENDERER_WEBGL
+                            return origParam(p);
+                        };
+                        gl.getExtension = function (name) {
+                            if (String(name) === 'WEBGL_debug_renderer_info') {
+                                return { UNMASKED_VENDOR_WEBGL: 37445, UNMASKED_RENDERER_WEBGL: 37446 };
+                            }
+                            return origExt(name);
+                        };
+                    };
+                    const origGetContext = HTMLCanvasElement.prototype.getContext;
+                    HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+                        const ctx = origGetContext.call(this, type, ...args);
+                        if (ctx && type && String(type).indexOf('webgl') === 0) patchGL(ctx);
+                        return ctx;
+                    };
+                } catch (e) {}
+
+                // ---------- 8. UA-CH（User-Agent Client Hints）平台对齐（无头 Linux 默认 platform=Linux） ----------
+                try {
+                    if (navigator.userAgentData) {
+                        Object.defineProperty(navigator.userAgentData, 'platform', { get: () => 'Windows' });
+                        const origHigh = navigator.userAgentData.getHighEntropyValues.bind(navigator.userAgentData);
+                        navigator.userAgentData.getHighEntropyValues = async (hints) => {
+                            const res = await origHigh(hints);
+                            if (res) {
+                                res.platform = 'Windows';
+                                res.platformVersion = '15.0.0';
+                                res.architecture = 'x86';
+                                res.bitness = '64';
+                            }
+                            return res;
+                        };
+                    }
+                } catch (e) {}
             })();
         """)
 
     async def run(self):
         self._clear_logs()  # 每次执行先清空 .logs 目录旧文件
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=self.headless, args=["--disable-blink-features=AutomationControlled"])
+            # GitHub Actions 等无显示服务器环境需无头模式，本地可用 PLAYWRIGHT_HEADLESS 控制
+            headless = os.environ.get("PLAYWRIGHT_HEADLESS", "0").lower() in ("1", "true", "yes")
+            print(f"[DEBUG] 浏览器模式: {'headless' if headless else 'headed'}")
+            browser = await p.chromium.launch(headless=headless, args=["--disable-blink-features=AutomationControlled"])
             s = self.config['stealth_settings']
-            context = await browser.new_context(user_agent=s['user_agent'], viewport=s['viewport'])
+            # locale/timezone 必须传入 context：影响 Accept-Language 请求头、Intl API 和 Date 时区指纹
+            # （config.yaml 已配置这两项，此前未生效）
+            context = await browser.new_context(
+                user_agent=s['user_agent'],
+                viewport=s['viewport'],
+                locale=s.get('locale', 'zh-CN'),
+                timezone_id=s.get('timezone', 'Asia/Shanghai'),
+            )
             page = await context.new_page()
             
             for step in self.config['steps']:
@@ -256,17 +377,15 @@ class AntiDetectScraper:
                 
                 # 将生成的 URL 分发到 worker 异步处理
                 
-                #tasks.append(self.url_worker(context, detail_url, ip_id, ip_type,ip, step['tab_steps']))
                 tasks.append(asyncio.create_task(self.url_worker(context, detail_url,ip_id,ip_type,ip, tab_steps=step['tab_steps'])))
                 
                 task_count = len(tasks)
                 if task_count >= self.max_reteive_pages:
                     break
                 
-                # 稍微等待，确保每个信号量启动间隔超过1.5秒，避开 JS 代码里的 1000ms 频率检测（虽然我们直接访问 URL，但后端可能也有频率校验）
-                #wait_after = step.get('wait_after',1)
-                #if wait_after>0:
-                #    await asyncio.sleep(wait_after)  
+                # 错峰启动：间隔 0.8~1.8s 随机创建下一个任务，规避站点 JS 的 1000ms 频率检测
+                # （冷却锁只约束页面访问时刻，任务本身的创建节奏也要随机化）
+                await asyncio.sleep(random.uniform(0.8, 1.8))
                   
         if tasks:
             self.dispatch_num_failed=len(tasks)
@@ -331,7 +450,7 @@ class AntiDetectScraper:
                     if response.status == 429 or response.status==403:
                         if retry <3:
                             print(f"[WARN] HTTP-CODE:{response.status},[{item_id}]访问过于频繁，wait 20s后再试。重试{retry}")
-                            await asyncio.sleep(10*retry)
+                            await asyncio.sleep(12*retry + random.uniform(2, 8))
                             continue
                         else:
                             print(f"[ERROR] [{item_id}]超过重试次数。")
@@ -343,17 +462,28 @@ class AntiDetectScraper:
                     print(f"[DEBUG] 触发原生函数跳转: gotoIP('{item_id}', '{item_type}')")
                     
                     async with self.single_lock:
-                        # 5.1 等待 gotoIP 全局函数就绪（海外/慢网络下 JS 可能尚未执行完）
+                        # 等待混淆 JS（pabe06.js 等）执行完毕，gotoIP 函数就绪
+                        # domcontentloaded 只保证 DOM 解析完成，异步脚本可能尚未执行完
+                        goto_ready = False
                         try:
-                            await new_page.wait_for_function("typeof gotoIP === 'function'", timeout=20000)
-                        except Exception:
-                            print(f"[WARN] [{item_id}] gotoIP 未就绪（JS 加载慢或未注入），触发重试 {retry+1}/3")
-                            page_timeout = True
-                            await asyncio.sleep(10 * retry)
-                            continue
+                            await new_page.wait_for_function("typeof gotoIP !== 'undefined'", timeout=20000)
+                            goto_ready = True
+                        except Exception as e:
+                            print(f"[WARN] [{item_id}] gotoIP 未就绪（{type(e).__name__}），改用直接 URL 跳转兜底")
 
-                        # 使用 evaluate 直接运行页面函数
-                        await new_page.evaluate(f"gotoIP('{item_id}', '{item_type}')")
+                        if goto_ready:
+                            # 参数走 Playwright 通道，避免字符串拼接注入
+                            await new_page.evaluate("([id, type]) => gotoIP(id, type)", [item_id, item_type])
+                        else:
+                            # 兜底：等价于 gotoIP 内部的跳转逻辑 index.php?p=xxx&t=xxx
+                            # （实测 gotoIP 跳转后的 URL 为 ?p=<id>&t=<type>，注意参数名是 t）
+                            fallback_url = f"https://iptv.cqshushu.com/index.php?p={quote(item_id)}&t={quote(item_type)}"
+                            fb_resp = await new_page.goto(fallback_url, wait_until="domcontentloaded", timeout=30000)
+                            if fb_resp and fb_resp.status in (429, 403):
+                                print(f"[WARN] [{item_id}] 兜底URL HTTP-CODE:{fb_resp.status}，重试 {retry}")
+                                page_timeout = True
+                                await asyncio.sleep(12 * retry + random.uniform(2, 8))
+                                continue
                         
                         # 6. 等待跳转后的详情页加载完成
                         # 我们等待详情页特有的元素出现，比如“查看频道列表”按钮或 controls 区域
@@ -366,7 +496,7 @@ class AntiDetectScraper:
                         if '阿爬' in textinfo:
                             print(f"[ERROR] [{item_id}]，阿爬，wait 20s后重试：{retry}")
                             page_timeout=True
-                            await asyncio.sleep(10*retry)
+                            await asyncio.sleep(15*retry + random.uniform(2, 8))
                             continue
                                         
 
@@ -380,7 +510,7 @@ class AntiDetectScraper:
                         except Exception as e:
                             print(f"[ERROR] [{item_id}]，wait 20s后重试：{retry}\n{e}")
                             page_timeout=True
-                            await asyncio.sleep(10*retry)
+                            await asyncio.sleep(12*retry + random.uniform(2, 8))
                             break
                     if not page_timeout:
                         async with self.file_lock: 
@@ -388,7 +518,17 @@ class AntiDetectScraper:
                         break
                     
             except Exception as e:
-                #await new_page.screenshot(path=f".logs/error_{item_id}.png")
+                # 失败现场快照：截图 + 标题 + URL + 正文片段，便于定位是被反爬拦截还是页面结构变化
+                try:
+                    await new_page.screenshot(path=f".logs/error_{item_id}.png", full_page=True)
+                    diag_title = await new_page.title()
+                    diag_body = await new_page.evaluate("document.body ? document.body.innerText.slice(0, 300) : ''")
+                    diag_body = diag_body.replace('\n', ' | ')
+                    print(f"[DIAG] [{item_id}] URL={new_page.url}")
+                    print(f"[DIAG] [{item_id}] TITLE={diag_title}")
+                    print(f"[DIAG] [{item_id}] BODY={diag_body}")
+                except Exception as de:
+                    print(f"[DIAG] [{item_id}] 现场快照失败: {de}")
                 print(f"[ERROR] 处理任务 {item_id} 时发生异常: {e}")
                 import traceback
                 trackmsg = traceback.format_exc()
@@ -689,6 +829,15 @@ class AntiDetectScraper:
             download_url += "?channels=1&download=txt"
         return {'download_url':download_url ,'item_id':item_id}
         
+
+    def _categorize_channel(self, name):
+        """按分类规则顺序判断频道名称所属类别（4K → 央视 → 卫视 → 其他）"""
+        up = (name or "").strip().upper()
+        for cat, keyword in CATEGORY_RULES:
+            if keyword in up:
+                return cat
+        return "其他频道"
+
     def _resolve_region_code(self):
         """省份缩写解析：优先 CLI --province，其次 config 的 select 地区值"""
         region_name = self.province_override
@@ -700,13 +849,13 @@ class AntiDetectScraper:
                             region_name = cmd.get('value')
                             break
         if not region_name:
-            print("[WARN] 未找到省份信息，合并输出将命名为 live.txt")
+            print("[WARN] config 中未找到地区下拉选择，合并输出将命名为 live.txt")
             return None
         for name, code in PROVINCE_CODE.items():
             if name in region_name:
-                print(f"[DEBUG] 省份「{region_name}」→ 缩写 {code}")
+                print(f"[DEBUG] 地区「{region_name}」→ 省份缩写 {code}")
                 return code
-        print(f"[WARN] 省份「{region_name}」未命中映射表，合并输出将命名为 live.txt")
+        print(f"[WARN] 地区「{region_name}」未命中省份映射表，合并输出将命名为 live.txt")
         return None
 
     def _clear_logs(self, log_dir=".logs"):
@@ -749,11 +898,32 @@ class AntiDetectScraper:
         if not merged:
             print("[WARN] 合并结果为空，不生成输出文件")
             return
+
+        # 按类别分组（顺序：4K → 央视 → 卫视 → 其他）
+        buckets = {cat: [] for cat in CATEGORY_ORDER}
+        for line in merged:
+            name = line.split(",", 1)[0]
+            buckets[self._categorize_channel(name)].append(line)
+
+        # 组装输出：公告块 + 各分类块（分类为空则跳过该分类头）
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        output = [
+            "公告,#genre#",
+            f"更新日期,{ANNOUNCE_MAIN_URL}",
+            f"{now},{ANNOUNCE_TIME_URL}",
+        ]
+        for cat in CATEGORY_ORDER:
+            if buckets[cat]:
+                output.append(f"{cat},#genre#")
+                output.extend(buckets[cat])
+
         base_dir = os.path.dirname(os.path.abspath(__file__))
         out_path = os.path.join(base_dir, output_name)
         with open(out_path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(merged) + "\n")
+            fh.write("\n".join(output) + "\n")
         print(f"[SUCCESS] 已合并 {len(txt_files)} 个文件共 {len(merged)} 行 → {out_path}")
+        for cat in CATEGORY_ORDER:
+            print(f"[INFO] {cat}: {len(buckets[cat])} 条")
 
     def test(self):
         cmd_str='custom_process_download'
@@ -765,11 +935,10 @@ class AntiDetectScraper:
         custom_handler(page=page,context=context,download_url=download_url,**kwargs)
             
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="IPTV 源抓取（支持 GitHub Actions 远程触发）")
+    parser = argparse.ArgumentParser(description="IPTV 源抓取（支持 GitHub Actions + 手机触发）")
     parser.add_argument("--province", default=None, help="省份名称，覆盖 config 中的地区选择（如 海南、湖南）")
-    parser.add_argument("--headless", action="store_true", help="无头模式（CI / 服务器运行）")
     args = parser.parse_args()
-    scraper = AntiDetectScraper('config.yaml', province=args.province, headless=args.headless)
+    scraper = AntiDetectScraper('config.yaml', province=args.province)
     #kwargs = {'page':2,'context':1,'step':3,'download_url':'htt:121231321'}
     #scraper.test()
     asyncio.run(scraper.run())

@@ -1,2 +1,8 @@
-playwright>=1.40.0
+# 注意：playwright 版本固定为 1.48.0，勿随意升级！
+# Playwright 1.49+ 无头模式默认改用独立的 chrome-headless-shell 二进制，
+# 其指纹易被目标站点识别（GitHub Actions 海外 IP 下 gotoIP 不执行、任务全部失败）。
+# 1.48.0 无头模式使用完整 Chrome 的 --headless=new，CI 实测正常。
+# 若确需升级，请使用 channel="chromium" 强制完整 Chrome，并在 CI 实测通过后再提交。
+playwright==1.48.0
+asyncio>=3.4.3
 pyyaml>=6.0

@@ -48,33 +48,50 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TZ: Asia/Shanghai
+      PLAYWRIGHT_HEADLESS: "1"
     steps:
-      - name: 检出仓库
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 安装 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      - name: 安装依赖与浏览器
+      # 缓存 Python 依赖与 playwright 浏览器，加速后续运行
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # 适配 Ubuntu 22.04+ 的 Chromium 运行库
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev libgbm-dev libatspi2.0-0 libxshmfence-dev libasound2t64 libgtk-3-0 libx11-xcb1 libxcb-dri3-0 libxrandr2 libxcursor1 libxcomposite1 libasound2-plugins libpulse0
+
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           python -m playwright install chromium --with-deps
 
-      - name: 执行爬虫（无头模式）
-        run: python -u IPTVScraper.py --province "${{ github.event.inputs.province }}" --headless
+      - name: Run Python script
+        run: python -u IPTVScraper.py --province "${{ github.event.inputs.province }}"
 
-      - name: 提交并推送产物
+      - name: Commit and push if changed
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          if ! git diff --cached --quiet; then
-            git commit -m "update ${{ github.event.inputs.province }} live list"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "update ${{ github.event.inputs.province }} live list $(date +'%Y-%m-%d %H:%M:%S')"
             git push
-            echo "已提交更新"
-          else
-            echo "无文件变化，跳过提交"
           fi

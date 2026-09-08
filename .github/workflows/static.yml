@@ -1,0 +1,41 @@
+# GitHub Pages 自定义构建部署工作流
+# 核心作用：接管原生pages-build-deployment，精准控制构建触发频率
+name: Deploy to GitHub Pages
+
+# ========== 核心：触发规则 ==========
+on:
+  # 手动触发（核心，方便按需部署）
+  workflow_dispatch:
+  # 自动触发：当推送到main分支，且根目录下任意 .txt 文件（如 hi-live.txt）被生成/更新时触发
+  push:
+    branches: [ "main" ]
+    paths:
+      - "*.txt"  # 根目录下的 .txt 文件变化即触发部署
+
+# ========== 构建部署核心逻辑 ==========
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 部署Pages必需的权限
+    steps:
+      # 步骤1：拉取仓库代码（包含根目录的 .txt 文件）
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 步骤2：创建临时目录，复制根目录所有 .txt 文件到该目录
+      - name: Prepare deploy files
+        run: |
+          mkdir -p ./deploy
+          cp ./*.txt ./deploy/
+
+      # 步骤3：部署到 gh-pages 分支（Pages 默认部署分支）
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          publish_branch: gh-pages
+          force_orphan: true  # 清空gh-pages分支旧内容，避免冗余文件

@@ -2,8 +2,9 @@ task_name: "IPTV_Stealth_Flow"
 max_concurrent_tabs: 22 # 反爬严时建议降低并发
 
 # 新增：反爬伪装配置
+# UA 版本需与 Playwright 内置 Chromium 实际版本一致（当前内置 130），版本不匹配是常见检测信号
 stealth_settings:
-  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
   viewport: { width: 1920, height: 1080 }
   locale: "zh-CN"
   timezone: "Asia/Shanghai"
