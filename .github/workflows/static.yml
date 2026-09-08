@@ -1,18 +1,11 @@
-# GitHub Pages 自定义构建部署工作流
-# 核心作用：接管原生pages-build-deployment，精准控制构建触发频率
+# GitHub Pages 部署工作流（手动触发）
+# 自动部署已并入 run-iptv.yml（抓取成功后直接部署 gh-pages，不再依赖 push 事件触发）
+# 本文件保留手动触发入口，供需要时手动部署
 name: Deploy to GitHub Pages
 
-# ========== 核心：触发规则 ==========
 on:
-  # 手动触发（核心，方便按需部署）
   workflow_dispatch:
-  # 自动触发：当推送到main分支，且根目录下任意 .txt 文件（如 hi-live.txt）被生成/更新时触发
-  push:
-    branches: [ "main" ]
-    paths:
-      - "*.txt"  # 根目录下的 .txt 文件变化即触发部署
 
-# ========== 构建部署核心逻辑 ==========
 jobs:
   deploy:
     runs-on: ubuntu-latest

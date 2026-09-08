@@ -95,3 +95,17 @@ jobs:
             git commit -m "update ${{ github.event.inputs.province }} live list $(date +'%Y-%m-%d %H:%M:%S')"
             git push
           fi
+
+      # 部署并入主流程：不再依赖 push 事件触发（push 触发偶尔会丢失）
+      - name: Prepare deploy files
+        run: |
+          mkdir -p ./deploy
+          cp ./*.txt ./deploy/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy
+          publish_branch: gh-pages
+          force_orphan: true
